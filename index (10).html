@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OÁSIS</title>
+<style>
+body{
+  font-family: Arial, sans-serif;
+  background:#0b2817;
+  color:#ffffff;
+  margin:0; padding:15px;
+}
+header{text-align:center;margin-bottom:20px;}
+.logo{
+  font-size:28px;
+  font-weight:900;
+  color:#00ff99;
+  letter-spacing:2px;
+  text-shadow:0 0 10px #00ff99;
+}
+.slogan{font-size:14px;color:#d4fcdc;}
+form{
+  background:rgba(0,50,20,0.8);
+  padding:12px;border-radius:10px;max-width:420px;margin:auto;
+}
+label{display:block;margin-top:8px;font-size:14px;}
+input, select, button{
+  width:100%;padding:8px;margin-top:5px;border-radius:6px;border:none;
+  background:#114422;color:#ffffff;font-size:14px;
+}
+button{
+  background:#00aa55;cursor:pointer;font-weight:600;margin-top:10px;border:none;
+}
+button:hover{opacity:0.9;}
+button.btn-danger{background:#cc3333;}
+button.btn-danger:hover{opacity:0.9;}
+table{
+  width:100%;border-collapse:collapse;margin-top:15px;
+  background:rgba(0,50,20,0.8);
+}
+th, td{
+  padding:6px;text-align:center;font-size:12px;
+  border-bottom:1px solid rgba(255,255,255,0.1);
+}
+th{color:#00ff99;}
+td.gasto{color:#ff5555;font-weight:600;}
+#resumos{text-align:center;margin-top:15px;font-size:14px;}
+#totalDia,#totalMes{color:#ff5555;font-weight:bold;}
+select#mesFiltro, select#anoFiltro{
+  width:auto;margin:10px 5px;display:inline-block;
+  background:#114422;border:none;border-radius:6px;padding:6px;
+  color:#ffffff;
+}
+canvas{display:block;margin:20px auto;max-width:400px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">OÁSIS STI</div>
+  <div class="slogan">Sistema Inteligente de Operações</div>
+</header>
+
+<form id="form">
+  <label>Nome do Operador</label>
+  <input id="operador" type="text" placeholder="Ex: João" required>
+
+  <label>Máquina utilizada</label>
+  <select id="maquina" required>
+    <option value="">Selecione a máquina</option>
+    <option>Trator de esteira D5 Caterpillar</option>
+    <option>Trator de esteira D61</option>
+    <option>Escavadeira GC 320</option>
+    <option>Escavadeira 924</option>
+    <option>Retroescavadeira</option>
+    <option> Pá Carregadeira</option>
+    <option>Rolo Compactador</option>
+  </select>
+
+  <label>Hora que ligou</label>
+  <input id="horaLigou" type="time" required>
+
+  <label>Hora que desligou</label>
+  <input id="horaDesligou" type="time" required>
+
+  <label>Diesel inicial (L)</label>
+  <input id="dieselInicial" type="number" step="0.01" min="0" required>
+
+  <label>Diesel final (L)</label>
+  <input id="dieselFinal" type="number" step="0.01" min="0" required>
+
+  <label>Preço do diesel (R$)</label>
+  <input id="precoDiesel" type="number" step="0.01" min="0" required>
+
+  <label>Consumo da máquina (L por hora)</label>
+  <input id="litrosHora" type="number" step="0.01" min="0" required>
+
+  <button type="submit">Registrar operação</button>
+  <button type="button" id="limparTudo" class="btn-danger">Limpar histórico</button>
+</form>
+
+<div style="text-align:center;margin-top:20px;">
+  <label>Ver resultados por mês:</label><br>
+  <select id="mesFiltro"></select>
+  <select id="anoFiltro"></select>
+  <button id="verMes">Ver</button>
+</div>
+
+<table id="tabela">
+  <thead>
+    <tr>
+      <th>Data</th>
+      <th>Operador</th>
+      <th>Máquina</th>
+      <th>Horas</th>
+      <th>Diesel usado (L)</th>
+      <th>Gasto (R$)</th>
+      <th>Nota</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<div id="resumos">
+  <p id="totalDia">Gasto do dia: R$ 0,00</p>
+  <p id="totalMes">Gasto do mês: R$ 0,00</p>
+</div>
+
+<canvas id="graficoPizza"></canvas>
+
+<!-- Firebase e Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+  // Configuração do Firebase - substitua pelos seus dados
+  const firebaseConfig = {
+    apiKey: "SUA_API_KEY",
+    authDomain: "SEU_DOMINIO.firebaseapp.com",
+    databaseURL: "https://SEU_DOMINIO.firebaseio.com",
+    projectId: "SEU_PROJETO_ID",
+    storageBucket: "SEU_PROJETO.appspot.com",
+    messagingSenderId: "SEU_MESSAGING_ID",
+    appId: "SEU_APP_ID"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  const tabela=document.querySelector('#tabela tbody');
+  let grafico=null;
+
+  function parseTimeToMinutes(t){const [h,m]=t.split(':').map(Number);return h*60+m;}
+  function minutesToHours(m){return +(m/60).toFixed(2);}
+  function escapeHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function calcularNota(exp,used){
+    if(exp<=0)return 5;
+    let eff=(exp-used)/exp;
+    let s=Math.round((eff+0.5)/0.9*10);
+    return Math.min(Math.max(s,0),10);
+  }
+
+  function salvarFirebase(registro){
+    const ref = db.ref('registros');
+    ref.push(registro);
+  }
+
+  function atualizarUIComDados(dados, filtroMes=null, filtroAno=null){
+    tabela.innerHTML="";
+    let totalDia=0,totalMes=0;
+    const hoje=new Date().toISOString().split('T')[0];
+    const filtrados=dados.filter(r=>{
+      const [dia,mes,ano]=r.data.split('/');
+      if(filtroMes && filtroAno) return Number(mes)===filtroMes && Number(ano)===filtroAno;
+      return true;
+    });
+    const gastoOperadores={};
+    filtrados.forEach(r=>{
+      const tr=document.createElement('tr');
+      const minLig=parseTimeToMinutes(r.horaLigou);
+      const minDes=parseTimeToMinutes(r.horaDesligou);
+      let dur=minDes-minLig;if(dur<0)dur+=1440;
+      const horas=minutesToHours(dur);
+      const nota=calcularNota(r.litrosHora*horas,r.usado);
+      tr.innerHTML=`<td>${r.data}</td><td>${escapeHtml(r.operador)}</td><td>${escapeHtml(r.maquina)}</td><td>${horas.toFixed(2)}</td><td>${r.usado.toFixed(2)}</td><td class="gasto">${r.gasto.toFixed(2)}</td><td>${nota}</td>`;
+      tabela.appendChild(tr);
+      if(r.data===hoje.split('-').reverse().join('/')) totalDia+=r.gasto;
+      const [d,m,a]=r.data.split('/');
+      const agora=new Date();
+      if(Number(m)===agora.getMonth()+1 && Number(a)===agora.getFullYear()) totalMes+=r.gasto;
+      gastoOperadores[r.operador]=(gastoOperadores[r.operador]||0)+r.gasto;
+    });
+    document.getElementById('totalDia').innerText=`Gasto do dia: R$ ${totalDia.toFixed(2)}`;
+    document.getElementById('totalMes').innerText=`Gasto do mês: R$ ${totalMes.toFixed(2)}`;
+
+    const ctx=document.getElementById('graficoPizza').getContext('2d');
+    const labels=Object.keys(gastoOperadores);
+    const valores=Object.values(gastoOperadores);
+    if(grafico) grafico.destroy();
+    if(labels.length>0){
+      grafico=new Chart(ctx,{
+        type:'pie',
+        data:{labels:labels,datasets:[{data:valores,backgroundColor:['#00ff99','#00995c','#33cc99','#ff5555','#ffaa00','#3366ff','#00ccff']}]},
+        options:{plugins:{legend:{labels:{color:'#ffffff'}}}}
+      });
+    }
+  }
+
+  function ouvirFirebase(filtroMes=null, filtroAno=null){
+    const ref = db.ref('registros');
+    ref.on('value', snapshot=>{
+      const dados = snapshot.val() || {};
+      const lista = Object.values(dados);
+      atualizarUIComDados(lista, filtroMes, filtroAno);
+    });
+  }
+
+  document.getElementById('form').addEventListener('submit', e=>{
+    e.preventDefault();
+    const op=document.getElementById('operador').value.trim();
+    const maq=document.getElementById('maquina').value;
+    const hL=document.getElementById('horaLigou').value;
+    const hD=document.getElementById('horaDesligou').value;
+    const ini=parseFloat(document.getElementById('dieselInicial').value);
+    const fin=parseFloat(document.getElementById('dieselFinal').value);
+    const preco=parseFloat(document.getElementById('precoDiesel').value);
+    const lh=parseFloat(document.getElementById('litrosHora').value);
+    const usado=Math.max(0,ini-fin);
+    const gasto=usado*preco;
+    const hoje=new Date();
+    const data=`${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
+
+    const registro={data,operador:op,maquina:maq,horaLigou:hL,horaDesligou:hD,dieselInicial:ini,dieselFinal:fin,litrosHora:lh,usado,gasto};
+    salvarFirebase(registro);
+    e.target.reset();
+  });
+
+  document.getElementById('limparTudo').onclick=()=>{
+    if(confirm("Tem certeza que deseja apagar todo o histórico?")){
+      db.ref('registros').remove();
+    }
+  };
+
+  const mesSel=document.getElementById('mesFiltro');
+  const anoSel=document.getElementById('anoFiltro');
+  const meses=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  meses.forEach((m,i)=>{
+    const opt=document.createElement('option');
+    opt.value=i+1; opt.textContent=m;
+    mesSel.appendChild(opt);
+  });
+  for(let a=2025;a<=2050;a++){
+    const opt=document.createElement('option');
+    opt.value=a; opt.textContent=a;
+    anoSel.appendChild(opt);
+  }
+  document.getElementById('verMes').onclick=()=>{
+    const m=Number(mesSel.value);
+    const a=Number(anoSel.value);
+    if(!m||!a)return alert("Selecione mês e ano.");
+    ouvirFirebase(m,a);
+  };
+
+  ouvirFirebase(); // inicializa o realtime
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ORIZON VR</title>
+<style>
+body{
+  font-family: Arial, sans-serif;
+  background:#0b2817;
+  color:#ffffff;
+  margin:0; padding:15px;
+}
+header{text-align:center;margin-bottom:20px;}
+.logo{
+  font-size:28px;
+  font-weight:900;
+  color:#00ff99;
+  letter-spacing:2px;
+  text-shadow:0 0 10px #00ff99;
+}
+.slogan{font-size:14px;color:#d4fcdc;}
+form{
+  background:rgba(0,50,20,0.8);
+  padding:12px;border-radius:10px;max-width:420px;margin:auto;
+}
+label{display:block;margin-top:8px;font-size:14px;}
+input, select, button{
+  width:100%;padding:8px;margin-top:5px;border-radius:6px;border:none;
+  background:#114422;color:#ffffff;font-size:14px;
+}
+button{
+  background:#00aa55;cursor:pointer;font-weight:600;margin-top:10px;border:none;
+}
+button:hover{opacity:0.9;}
+button.btn-danger{background:#cc3333;}
+button.btn-danger:hover{opacity:0.9;}
+table{
+  width:100%;border-collapse:collapse;margin-top:15px;
+  background:rgba(0,50,20,0.8);
+}
+th, td{
+  padding:6px;text-align:center;font-size:12px;
+  border-bottom:1px solid rgba(255,255,255,0.1);
+}
+th{color:#00ff99;}
+td.gasto{color:#ff5555;font-weight:600;}
+#resumos{text-align:center;margin-top:15px;font-size:14px;}
+#totalDia,#totalMes{color:#ff5555;font-weight:bold;}
+select#mesFiltro, select#anoFiltro{
+  width:auto;margin:10px 5px;display:inline-block;
+  background:#114422;border:none;border-radius:6px;padding:6px;
+  color:#ffffff;
+}
+canvas{display:block;margin:20px auto;max-width:400px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">ORIZON VR</div>
+  <div class="slogan">Sistema Inteligente de Operações</div>
+</header>
+
+<form id="form">
+  <label>Nome do Operador</label>
+  <input id="operador" type="text" placeholder="Ex: João" required>
+
+  <label>Máquina utilizada</label>
+  <select id="maquina" required>
+    <option value="">Selecione a máquina</option>
+    <option>Trator de esteira D5 Caterpillar</option>
+    <option>Trator de esteira D61</option>
+    <option>Escavadeira GC 320</option>
+    <option>Escavadeira 924</option>
+    <option>Retroescavadeira</option>
+    <option>Carregadeira</option>
+    <option>Rolo Compactador</option>
+  </select>
+
+  <label>Hora que ligou</label>
+  <input id="horaLigou" type="time" required>
+
+  <label>Hora que desligou</label>
+  <input id="horaDesligou" type="time" required>
+
+  <label>Diesel inicial (L)</label>
+  <input id="dieselInicial" type="number" step="0.01" min="0" required>
+
+  <label>Diesel final (L)</label>
+  <input id="dieselFinal" type="number" step="0.01" min="0" required>
+
+  <label>Preço do diesel (R$)</label>
+  <input id="precoDiesel" type="number" step="0.01" min="0" required>
+
+  <label>Consumo da máquina (L por hora)</label>
+  <input id="litrosHora" type="number" step="0.01" min="0" required>
+
+  <button type="submit">Registrar operação</button>
+  <button type="button" id="limparTudo" class="btn-danger">Limpar histórico</button>
+</form>
+
+<div style="text-align:center;margin-top:20px;">
+  <label>Ver resultados por mês:</label><br>
+  <select id="mesFiltro"></select>
+  <select id="anoFiltro"></select>
+  <button id="verMes">Ver</button>
+</div>
+
+<table id="tabela">
+  <thead>
+    <tr>
+      <th>Data</th>
+      <th>Operador</th>
+      <th>Máquina</th>
+      <th>Horas</th>
+      <th>Diesel usado (L)</th>
+      <th>Gasto (R$)</th>
+      <th>Nota</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<div id="resumos">
+  <p id="totalDia">Gasto do dia: R$ 0,00</p>
+  <p id="totalMes">Gasto do mês: R$ 0,00</p>
+</div>
+
+<canvas id="graficoPizza"></canvas>
+
+<!-- Firebase e Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+  // Configuração do Firebase - substitua pelos seus dados
+  const firebaseConfig = {
+    apiKey: "SUA_API_KEY",
+    authDomain: "SEU_DOMINIO.firebaseapp.com",
+    databaseURL: "https://SEU_DOMINIO.firebaseio.com",
+    projectId: "SEU_PROJETO_ID",
+    storageBucket: "SEU_PROJETO.appspot.com",
+    messagingSenderId: "SEU_MESSAGING_ID",
+    appId: "SEU_APP_ID"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  const tabela=document.querySelector('#tabela tbody');
+  let grafico=null;
+
+  function parseTimeToMinutes(t){const [h,m]=t.split(':').map(Number);return h*60+m;}
+  function minutesToHours(m){return +(m/60).toFixed(2);}
+  function escapeHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function calcularNota(exp,used){
+    if(exp<=0)return 5;
+    let eff=(exp-used)/exp;
+    let s=Math.round((eff+0.5)/0.9*10);
+    return Math.min(Math.max(s,0),10);
+  }
+
+  function salvarFirebase(registro){
+    const ref = db.ref('registros');
+    ref.push(registro);
+  }
+
+  function atualizarUIComDados(dados, filtroMes=null, filtroAno=null){
+    tabela.innerHTML="";
+    let totalDia=0,totalMes=0;
+    const hoje=new Date().toISOString().split('T')[0];
+    const filtrados=dados.filter(r=>{
+      const [dia,mes,ano]=r.data.split('/');
+      if(filtroMes && filtroAno) return Number(mes)===filtroMes && Number(ano)===filtroAno;
+      return true;
+    });
+    const gastoOperadores={};
+    filtrados.forEach(r=>{
+      const tr=document.createElement('tr');
+      const minLig=parseTimeToMinutes(r.horaLigou);
+      const minDes=parseTimeToMinutes(r.horaDesligou);
+      let dur=minDes-minLig;if(dur<0)dur+=1440;
+      const horas=minutesToHours(dur);
+      const nota=calcularNota(r.litrosHora*horas,r.usado);
+      tr.innerHTML=`<td>${r.data}</td><td>${escapeHtml(r.operador)}</td><td>${escapeHtml(r.maquina)}</td><td>${horas.toFixed(2)}</td><td>${r.usado.toFixed(2)}</td><td class="gasto">${r.gasto.toFixed(2)}</td><td>${nota}</td>`;
+      tabela.appendChild(tr);
+      if(r.data===hoje.split('-').reverse().join('/')) totalDia+=r.gasto;
+      const [d,m,a]=r.data.split('/');
+      const agora=new Date();
+      if(Number(m)===agora.getMonth()+1 && Number(a)===agora.getFullYear()) totalMes+=r.gasto;
+      gastoOperadores[r.operador]=(gastoOperadores[r.operador]||0)+r.gasto;
+    });
+    document.getElementById('totalDia').innerText=`Gasto do dia: R$ ${totalDia.toFixed(2)}`;
+    document.getElementById('totalMes').innerText=`Gasto do mês: R$ ${totalMes.toFixed(2)}`;
+
+    const ctx=document.getElementById('graficoPizza').getContext('2d');
+    const labels=Object.keys(gastoOperadores);
+    const valores=Object.values(gastoOperadores);
+    if(grafico) grafico.destroy();
+    if(labels.length>0){
+      grafico=new Chart(ctx,{
+        type:'pie',
+        data:{labels:labels,datasets:[{data:valores,backgroundColor:['#00ff99','#00995c','#33cc99','#ff5555','#ffaa00','#3366ff','#00ccff']}]},
+        options:{plugins:{legend:{labels:{color:'#ffffff'}}}}
+      });
+    }
+  }
+
+  function ouvirFirebase(filtroMes=null, filtroAno=null){
+    const ref = db.ref('registros');
+    ref.on('value', snapshot=>{
+      const dados = snapshot.val() || {};
+      const lista = Object.values(dados);
+      atualizarUIComDados(lista, filtroMes, filtroAno);
+    });
+  }
+
+  document.getElementById('form').addEventListener('submit', e=>{
+    e.preventDefault();
+    const op=document.getElementById('operador').value.trim();
+    const maq=document.getElementById('maquina').value;
+    const hL=document.getElementById('horaLigou').value;
+    const hD=document.getElementById('horaDesligou').value;
+    const ini=parseFloat(document.getElementById('dieselInicial').value);
+    const fin=parseFloat(document.getElementById('dieselFinal').value);
+    const preco=parseFloat(document.getElementById('precoDiesel').value);
+    const lh=parseFloat(document.getElementById('litrosHora').value);
+    const usado=Math.max(0,ini-fin);
+    const gasto=usado*preco;
+    const hoje=new Date();
+    const data=`${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
+
+    const registro={data,operador:op,maquina:maq,horaLigou:hL,horaDesligou:hD,dieselInicial:ini,dieselFinal:fin,litrosHora:lh,usado,gasto};
+    salvarFirebase(registro);
+    e.target.reset();
+  });
+
+  document.getElementById('limparTudo').onclick=()=>{
+    if(confirm("Tem certeza que deseja apagar todo o histórico?")){
+      db.ref('registros').remove();
+    }
+  };
+
+  const mesSel=document.getElementById('mesFiltro');
+  const anoSel=document.getElementById('anoFiltro');
+  const meses=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  meses.forEach((m,i)=>{
+    const opt=document.createElement('option');
+    opt.value=i+1; opt.textContent=m;
+    mesSel.appendChild(opt);
+  });
+  for(let a=2025;a<=2050;a++){
+    const opt=document.createElement('option');
+    opt.value=a; opt.textContent=a;
+    anoSel.appendChild(opt);
+  }
+  document.getElementById('verMes').onclick=()=>{
+    const m=Number(mesSel.value);
+    const a=Number(anoSel.value);
+    if(!m||!a)return alert("Selecione mês e ano.");
+    ouvirFirebase(m,a);
+  };
+
+  ouvirFirebase(); // inicializa o realtime
+</script>
+</body>
+</html>
