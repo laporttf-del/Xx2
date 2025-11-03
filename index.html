@@ -1,0 +1,47 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OÁSIS - Sistema Inteligente de Operações</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Custom scrollbar for a better look on the dark theme */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #114422;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #00ff99;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #00cc7a;
+    }
+  </style>
+</head>
+<body class="bg-[#0b2817] text-white font-sans">
+  <div id="root"></div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.3.1",
+        "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+        "@google/genai": "https://esm.sh/@google/generative-ai",
+        "chart.js": "https://esm.sh/chart.js@4.4.3",
+        "react-chartjs-2": "https://esm.sh/react-chartjs-2@5.2.0"
+      }
+    }
+  </script>
+  
+  <!-- Firebase SDK (Compat version for simplicity as in original user code) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
